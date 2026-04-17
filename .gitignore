@@ -12,3 +12,4 @@ dragonruby-bind.exe
 /.dragonruby/
 font.ttf
 .DS_Store
+mygame/errors/last.txt
