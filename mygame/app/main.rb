@@ -5,6 +5,8 @@ require 'app/grid_renderer.rb'
 require 'app/pan_controller.rb'
 require 'app/building_placer.rb'
 require 'app/road_builder.rb'
+require 'app/road_graph.rb'
+require 'app/road_pathfinder.rb'
 require 'app/car_manager.rb'
 require 'app/input_handler.rb'
 

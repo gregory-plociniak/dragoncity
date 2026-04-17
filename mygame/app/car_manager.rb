@@ -8,6 +8,10 @@ class CarManager
   MIN_PAIR_DISTANCE = 4
   DEFAULT_SPEED = 0.02
 
+  def initialize(pathfinder = RoadPathfinder.new)
+    @pathfinder = pathfinder
+  end
+
   def recompute(state)
     building_tiles = state.buildings.keys.map { |key| parse_key(key) }
 
@@ -15,7 +19,10 @@ class CarManager
     building_tiles.combination(2).each do |(c1, r1), (c2, r2)|
       next unless [(c1 - c2).abs, (r1 - r2).abs].max >= MIN_PAIR_DISTANCE
 
-      path = build_loop_path(c1, r1, c2, r2)
+      forward_path = best_road_path(state.roads, [c1, r1], [c2, r2])
+      next unless forward_path
+
+      path = build_shuttle_loop(forward_path)
       next if path.size < 2
 
       new_cars << preserve_progress_or_new(state.cars, path)
@@ -67,19 +74,40 @@ class CarManager
     [col.to_i, row.to_i]
   end
 
-  def build_loop_path(c1, r1, c2, r2)
-    corners = [[c1, r1], [c2, r1], [c2, r2], [c1, r2]]
-    path = []
-    corners.each_with_index do |from, i|
-      to = corners[(i + 1) % corners.size]
-      col, row = from
-      while [col, row] != to
-        path << [col, row]
-        col += (to[0] <=> col)
-        row += (to[1] <=> row)
+  def best_road_path(roads, start_building, goal_building)
+    start_access_tiles = RoadGraph.building_access_tiles(roads, start_building[0], start_building[1])
+    goal_access_tiles = RoadGraph.building_access_tiles(roads, goal_building[0], goal_building[1])
+    return nil if start_access_tiles.empty? || goal_access_tiles.empty?
+
+    best_path = nil
+
+    start_access_tiles.each do |start_tile|
+      goal_access_tiles.each do |goal_tile|
+        candidate_path = @pathfinder.find_path(roads, start_tile, goal_tile)
+        next unless candidate_path
+        next unless better_path?(candidate_path, best_path)
+
+        best_path = candidate_path
       end
     end
-    path
+
+    best_path
+  end
+
+  def better_path?(candidate_path, current_best_path)
+    return true unless current_best_path
+
+    return true if candidate_path.length < current_best_path.length
+    return false if candidate_path.length > current_best_path.length
+
+    compare_paths(candidate_path, current_best_path) < 0
+  end
+
+  def build_shuttle_loop(forward_path)
+    return forward_path if forward_path.length < 2
+
+    return_segment = forward_path.reverse[1...-1] || []
+    forward_path + return_segment
   end
 
   def preserve_progress_or_new(existing_cars, path)
@@ -92,6 +120,23 @@ class CarManager
       progress: 0.0,
       speed: DEFAULT_SPEED
     }
+  end
+
+  def compare_paths(left_path, right_path)
+    left_path.each_with_index do |(left_col, left_row), index|
+      right_col, right_row = right_path[index]
+      left_order = tile_order(left_col, left_row)
+      right_order = tile_order(right_col, right_row)
+      next if left_order == right_order
+
+      return left_order < right_order ? -1 : 1
+    end
+
+    0
+  end
+
+  def tile_order(col, row)
+    row * GRID_SIZE + col
   end
 
   def sprite_for_delta(delta_col, delta_row)

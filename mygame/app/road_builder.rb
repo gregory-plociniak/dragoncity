@@ -34,7 +34,8 @@ class RoadBuilder
     end
 
     if mouse.key_up.left
-      commit_preview(args.state)
+      committed = commit_preview(args.state)
+      $car_manager.recompute(args.state) if committed
       clear_preview(args.state)
     end
   end
@@ -46,9 +47,13 @@ class RoadBuilder
   end
 
   def commit_preview(state)
+    return false if state.road_preview.empty?
+
     state.road_preview.each do |key, road_kind|
       state.roads[key] = merge_road(state.roads[key], road_kind)
     end
+
+    true
   end
 
   private
