@@ -7,6 +7,17 @@ class CarManager
   }
   MIN_PAIR_DISTANCE = 4
   DEFAULT_SPEED = 0.02
+  LANE_OFFSET_X = 10
+  LANE_OFFSET_Y = 5
+  # Screen-space lane offsets tuned by eye. Deltas are grid-step directions:
+  # [ 1,  0] moves visually up-right, [-1,  0] down-left,
+  # [ 0,  1] up-left,              [ 0, -1] down-right.
+  RIGHT_HAND_LANE_OFFSETS = {
+    [1, 0] => [LANE_OFFSET_X, -LANE_OFFSET_Y],
+    [-1, 0] => [-LANE_OFFSET_X, LANE_OFFSET_Y],
+    [0, 1] => [LANE_OFFSET_X, LANE_OFFSET_Y],
+    [0, -1] => [-LANE_OFFSET_X, -LANE_OFFSET_Y]
+  }.freeze
 
   def initialize(pathfinder = RoadPathfinder.new)
     @pathfinder = pathfinder
@@ -51,14 +62,14 @@ class CarManager
       to   = path[car[:step_index] + 1]
       next unless from && to
 
-      from_sx, from_sy = camera.world_to_screen(from[0], from[1], TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
-      to_sx, to_sy     = camera.world_to_screen(to[0], to[1], TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
+      delta_col = to[0] - from[0]
+      delta_row = to[1] - from[1]
+      sx, sy = interpolated_screen_position(camera, from, to, car[:progress])
+      lane_dx, lane_dy = lane_offset_for(delta_col, delta_row)
+      sx += lane_dx
+      sy += lane_dy
 
-      t = car[:progress]
-      sx = from_sx + (to_sx - from_sx) * t
-      sy = from_sy + (to_sy - from_sy) * t
-
-      sprite_path = sprite_for_delta(to[0] - from[0], to[1] - from[1])
+      sprite_path = sprite_for_delta(delta_col, delta_row)
       w, h = AMBULANCE_SPRITE_DIMENSIONS[sprite_path]
 
       args.outputs.sprites << {
@@ -226,6 +237,19 @@ class CarManager
 
   def tile_order(col, row)
     row * GRID_SIZE + col
+  end
+
+  def interpolated_screen_position(camera, from, to, progress)
+    from_sx, from_sy = camera.world_to_screen(from[0], from[1], TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
+    to_sx, to_sy = camera.world_to_screen(to[0], to[1], TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
+
+    sx = from_sx + (to_sx - from_sx) * progress
+    sy = from_sy + (to_sy - from_sy) * progress
+    [sx, sy]
+  end
+
+  def lane_offset_for(delta_col, delta_row)
+    RIGHT_HAND_LANE_OFFSETS.fetch([delta_col, delta_row], [0, 0])
   end
 
   def sprite_for_delta(delta_col, delta_row)
