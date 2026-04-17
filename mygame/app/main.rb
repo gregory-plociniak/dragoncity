@@ -17,8 +17,11 @@ $grid_renderer = GridRenderer.new
 $input_handler = InputHandler.new
 
 def tick args
-  args.state.mode      ||= :pan
-  args.state.buildings ||= {}
+  args.state.mode           ||= :pan
+  args.state.buildings      ||= {}
+  args.state.roads          ||= {}
+  args.state.road_drag_last ||= nil
+  args.state.road_drag_kind ||= nil
 
   args.outputs.background_color = [0, 0, 0]
   $grid_renderer.render(args, $camera)
