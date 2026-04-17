@@ -2,6 +2,11 @@ class GridRenderer
   BUILDING_TILE_PATH = 'sprites/building01.png'
   GROUND_TILE_PATH = 'sprites/ground.png'
   PREVIEW_ALPHA = 128
+  INVALID_GROUND_COLOR = {
+    r: 255,
+    g: 110,
+    b: 110
+  }
 
   def render(args, camera)
     GRID_SIZE.times do |row|
@@ -9,9 +14,10 @@ class GridRenderer
         sx, sy = camera.world_to_screen(col, row, TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
         tile_key = "#{col},#{row}"
 
+        draw_tile(args, sx, sy, GROUND_TILE_PATH, **ground_tile_color(args.state, tile_key))
+
         road_path = road_sprite_path(args.state.roads[tile_key])
-        base_path = road_path || GROUND_TILE_PATH
-        draw_tile(args, sx, sy, base_path)
+        draw_tile(args, sx, sy, road_path) if road_path
 
         preview_path = road_sprite_path(args.state.road_preview[tile_key])
         draw_tile(args, sx, sy, preview_path, a: PREVIEW_ALPHA) if preview_path
@@ -46,7 +52,13 @@ class GridRenderer
     end
   end
 
-  def draw_tile(args, sx, sy, path, a: 255)
+  def ground_tile_color(state, tile_key)
+    return {} unless state.invalid_build_tiles[tile_key]
+
+    INVALID_GROUND_COLOR
+  end
+
+  def draw_tile(args, sx, sy, path, r: 255, g: 255, b: 255, a: 255)
     tile_w, tile_h = tile_dimensions(path)
     tile_x_offset, tile_y_offset = tile_offsets(path)
 
@@ -56,6 +68,9 @@ class GridRenderer
       w: tile_w,
       h: tile_h,
       path: path,
+      r: r,
+      g: g,
+      b: b,
       a: a
     }
   end

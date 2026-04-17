@@ -11,6 +11,7 @@ ORIGIN_Y  = 660
 PAN_SPEED        = 4
 BUILDING_TILE_X_OFFSET = 0
 BUILDING_TILE_Y_OFFSET = 26
+BUILD_INVALID_FLASH_FRAMES = 20
 
 $camera = IsometricCamera.new
 $grid_renderer = GridRenderer.new
@@ -23,11 +24,14 @@ def tick args
   args.state.road_preview   ||= {}
   args.state.road_drag_last ||= nil
   args.state.road_drag_kind ||= nil
+  args.state.invalid_build_tiles ||= {}
+  args.state.frame_index ||= 0
   args.state.mode_buttons   ||= {
     pan:   Layout.rect(row: 0, col: 0, w: 3, h: 1),
     build: Layout.rect(row: 0, col: 3, w: 3, h: 1),
     roads: Layout.rect(row: 0, col: 6, w: 3, h: 1)
   }
+  args.state.frame_index += 1
 
   args.outputs.background_color = [0, 0, 0]
   $grid_renderer.render(args, $camera)

@@ -1,5 +1,6 @@
 class InputHandler
   def process(args, camera)
+    prune_expired_build_feedback(args.state)
     return if handle_ui_click(args)
 
     case args.state.mode
@@ -57,8 +58,10 @@ class InputHandler
     key = tile_key(col, row)
     if args.state.buildings[key]
       args.state.buildings.delete(key)
-    else
+    elsif road_nearby?(args.state.roads, col, row)
       args.state.buildings[key] = true
+    else
+      flash_invalid_build_tile(args.state, key)
     end
   end
 
@@ -173,6 +176,22 @@ class InputHandler
 
   def tile_key(col, row)
     "#{col},#{row}"
+  end
+
+  def road_nearby?(roads, col, row)
+    [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].any? do |delta_col, delta_row|
+      roads[tile_key(col + delta_col, row + delta_row)]
+    end
+  end
+
+  def flash_invalid_build_tile(state, key)
+    state.invalid_build_tiles[key] = state.frame_index + BUILD_INVALID_FLASH_FRAMES
+  end
+
+  def prune_expired_build_feedback(state)
+    state.invalid_build_tiles.delete_if do |_key, expires_at|
+      expires_at < state.frame_index
+    end
   end
 
   def clear_road_preview(state)
