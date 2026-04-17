@@ -9,10 +9,9 @@ class GridRenderer
         sx, sy = camera.world_to_screen(col, row, TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
         tile_key = "#{col},#{row}"
 
-        draw_tile(args, sx, sy, GROUND_TILE_PATH)
-
         road_path = road_sprite_path(args.state.roads[tile_key])
-        draw_tile(args, sx, sy, road_path) if road_path
+        base_path = road_path || GROUND_TILE_PATH
+        draw_tile(args, sx, sy, base_path)
 
         preview_path = road_sprite_path(args.state.road_preview[tile_key])
         draw_tile(args, sx, sy, preview_path, a: PREVIEW_ALPHA) if preview_path
