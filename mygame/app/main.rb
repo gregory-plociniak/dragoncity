@@ -9,8 +9,8 @@ TILE_H    = 101
 ORIGIN_X  = 540
 ORIGIN_Y  = 660
 PAN_SPEED        = 4
-BUILDING_Y_OFFSET = 20   # pixels upward; tune this value
-BUILDING_SCALE    = 0.8  # relative to tile size; tune this value
+BUILDING_TILE_X_OFFSET = 0
+BUILDING_TILE_Y_OFFSET = 26
 
 $camera = IsometricCamera.new
 $grid_renderer = GridRenderer.new

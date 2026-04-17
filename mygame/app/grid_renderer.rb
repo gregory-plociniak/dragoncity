@@ -1,30 +1,23 @@
 class GridRenderer
+  BUILDING_TILE_PATH = 'sprites/building01.png'
+
   def render(args, camera)
     GRID_SIZE.times do |row|
       GRID_SIZE.times do |col|
         sx, sy = camera.world_to_screen(col, row, TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
+        building_present = args.state.buildings["#{col},#{row}"]
         road_path = road_sprite_path(args.state.roads["#{col},#{row}"])
-        tile_path = road_path || 'sprites/ground.png'
+        tile_path = building_present ? BUILDING_TILE_PATH : (road_path || 'sprites/ground.png')
+        tile_w, tile_h = tile_dimensions(tile_path)
+        tile_x_offset, tile_y_offset = tile_offsets(tile_path)
 
         args.outputs.sprites << {
-          x: sx - TILE_W / 2,
-          y: sy - TILE_H,
-          w: TILE_W,
-          h: TILE_H,
+          x: sx - tile_w / 2 + tile_x_offset,
+          y: sy - tile_h + tile_y_offset,
+          w: tile_w,
+          h: tile_h,
           path: tile_path
         }
-
-        if args.state.buildings["#{col},#{row}"]
-          bw = (TILE_W * BUILDING_SCALE).round
-          bh = (TILE_H * BUILDING_SCALE).round
-          args.outputs.sprites << {
-            x: sx - bw / 2,
-            y: sy - bh + BUILDING_Y_OFFSET,
-            w: bw,
-            h: bh,
-            path: 'sprites/building1.png'
-          }
-        end
       end
     end
 
@@ -46,6 +39,22 @@ class GridRenderer
       'sprites/road_NW.png'
     when :cross
       'sprites/crossroad.png'
+    end
+  end
+
+  def tile_dimensions(path)
+    if path == BUILDING_TILE_PATH
+      [133, 127]
+    else
+      [TILE_W, TILE_H]
+    end
+  end
+
+  def tile_offsets(path)
+    if path == BUILDING_TILE_PATH
+      [BUILDING_TILE_X_OFFSET, BUILDING_TILE_Y_OFFSET]
+    else
+      [0, 0]
     end
   end
 end
