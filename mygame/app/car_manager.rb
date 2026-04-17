@@ -22,10 +22,6 @@ class CarManager
     [0, 1] => [0, 0],
     [0, -1] => [0, -8] # bottom-right travel: raise the car toward the asphalt
   }.freeze
-  # Turn smoothing window. Move START earlier to begin shifting lanes sooner
-  # before an intersection; move END earlier/later to finish the blend faster/slower.
-  TURN_BLEND_START = 0.75
-  TURN_BLEND_END = 1.0
   # Screen-space lane shift tuned by eye. The offset is computed from the
   # segment's actual projected screen vector, then rotated to the traveler's
   # right side so it stays perpendicular to the road in all four directions.
@@ -264,20 +260,7 @@ class CarManager
     to = path[step_index + 1]
     return [0, 0] unless from && to
 
-    current_offset = total_direction_offset(to[0] - from[0], to[1] - from[1])
-    next_tile = path[step_index + 2]
-    return current_offset unless next_tile
-    return current_offset if progress <= TURN_BLEND_START
-
-    next_offset = total_direction_offset(next_tile[0] - to[0], next_tile[1] - to[1])
-    # Fine-tune turn feel here by adjusting TURN_BLEND_START / TURN_BLEND_END above.
-    blend = (progress - TURN_BLEND_START) / (TURN_BLEND_END - TURN_BLEND_START)
-    blend = [[blend, 0.0].max, 1.0].min
-
-    [
-      current_offset[0] + (next_offset[0] - current_offset[0]) * blend,
-      current_offset[1] + (next_offset[1] - current_offset[1]) * blend
-    ]
+    total_direction_offset(to[0] - from[0], to[1] - from[1])
   end
 
   def right_hand_lane_offset(delta_col, delta_row)
