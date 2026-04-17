@@ -17,10 +17,10 @@ class CarManager
   # specific travel direction still rides too close to a sidewalk because the
   # road art is not visually centered on the tile.
   DIRECTIONAL_ART_BIAS = {
-    [1, 0] => [0, 0],
+    [1, 0] => [0, 0], # bottom-right travel
     [-1, 0] => [0, 0],
     [0, 1] => [0, 0],
-    [0, -1] => [0, -8] # bottom-right travel: raise the car toward the asphalt
+    [0, -1] => [-15, -8] # top-right travel: move left slightly and raise toward the asphalt
   }.freeze
   # Screen-space lane shift tuned by eye. The offset is computed from the
   # segment's actual projected screen vector, then rotated to the traveler's
