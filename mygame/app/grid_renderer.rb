@@ -13,11 +13,13 @@ class GridRenderer
       GRID_SIZE.times do |col|
         sx, sy = camera.world_to_screen(col, row, TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
         tile_key = "#{col},#{row}"
-
-        draw_tile(args, sx, sy, GROUND_TILE_PATH, **ground_tile_color(args.state, tile_key))
-
         road_path = road_sprite_path(args.state.roads[tile_key])
-        draw_tile(args, sx, sy, road_path) if road_path
+
+        if road_path
+          draw_tile(args, sx, sy, road_path)
+        else
+          draw_tile(args, sx, sy, GROUND_TILE_PATH, **ground_tile_color(args.state, tile_key))
+        end
 
         preview_path = road_sprite_path(args.state.road_preview[tile_key])
         draw_tile(args, sx, sy, preview_path, a: PREVIEW_ALPHA) if preview_path
