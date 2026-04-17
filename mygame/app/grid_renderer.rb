@@ -12,7 +12,7 @@ class GridRenderer
     GRID_SIZE.times do |row|
       GRID_SIZE.times do |col|
         sx, sy = camera.world_to_screen(col, row, TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
-        tile_key = "#{col},#{row}"
+        tile_key = GridCoordinates.tile_key(col, row)
         road_path = road_sprite_path(args.state.roads[tile_key])
 
         if road_path
