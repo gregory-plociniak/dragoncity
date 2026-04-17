@@ -16,7 +16,10 @@ class BuildingPlacer
       args.state.buildings[key] = true
     else
       flash_invalid(args.state, key)
+      return
     end
+
+    $car_manager.recompute(args.state)
   end
 
   def prune_expired(state)

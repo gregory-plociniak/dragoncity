@@ -5,6 +5,7 @@ require 'app/grid_renderer.rb'
 require 'app/pan_controller.rb'
 require 'app/building_placer.rb'
 require 'app/road_builder.rb'
+require 'app/car_manager.rb'
 require 'app/input_handler.rb'
 
 GRID_SIZE = 10
@@ -21,6 +22,7 @@ BUILD_INVALID_FLASH_FRAMES = 20
 def initialize_runtime_objects
   $camera = IsometricCamera.new
   $grid_renderer = GridRenderer.new
+  $car_manager = CarManager.new
   $input_handler = InputHandler.new
 end
 
@@ -31,7 +33,9 @@ def tick args
   args.state.frame_index += 1
 
   args.outputs.background_color = [0, 0, 0]
+  $car_manager.tick(args.state)
   $grid_renderer.render(args, $camera)
+  $car_manager.render(args, $camera)
   $input_handler.process(args, $camera)
 end
 
