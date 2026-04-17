@@ -12,7 +12,7 @@ class BuildingPlacer
     key = GridCoordinates.tile_key(col, row)
     if args.state.buildings[key]
       args.state.buildings.delete(key)
-    elsif road_nearby?(args.state.roads, col, row)
+    elsif !args.state.roads[key] && road_nearby?(args.state.roads, col, row)
       args.state.buildings[key] = true
     else
       flash_invalid(args.state, key)
