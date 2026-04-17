@@ -7,17 +7,28 @@ class CarManager
   }
   MIN_PAIR_DISTANCE = 4
   DEFAULT_SPEED = 0.02
-  LANE_OFFSET_X = 10
-  LANE_OFFSET_Y = 5
-  # Screen-space lane offsets tuned by eye. Deltas are grid-step directions:
-  # [ 1,  0] moves visually up-right, [-1,  0] down-left,
-  # [ 0,  1] up-left,              [ 0, -1] down-right.
-  RIGHT_HAND_LANE_OFFSETS = {
-    [1, 0] => [LANE_OFFSET_X, -LANE_OFFSET_Y],
-    [-1, 0] => [-LANE_OFFSET_X, LANE_OFFSET_Y],
-    [0, 1] => [LANE_OFFSET_X, LANE_OFFSET_Y],
-    [0, -1] => [-LANE_OFFSET_X, -LANE_OFFSET_Y]
+  # Main lane-distance control. Increase to push cars farther from the road
+  # centerline; decrease to pull them back toward the middle.
+  LANE_OFFSET_PIXELS = 5
+  # Global vertical placement for the car sprite after lane math. Make this
+  # more negative to raise all cars, or closer to 0 to lower them.
+  GLOBAL_CAR_Y_BIAS = 25
+  # Sprite-art compensation after the geometric lane offset. Use this when a
+  # specific travel direction still rides too close to a sidewalk because the
+  # road art is not visually centered on the tile.
+  DIRECTIONAL_ART_BIAS = {
+    [1, 0] => [0, 0],
+    [-1, 0] => [0, 0],
+    [0, 1] => [0, 0],
+    [0, -1] => [0, -8] # bottom-right travel: raise the car toward the asphalt
   }.freeze
+  # Turn smoothing window. Move START earlier to begin shifting lanes sooner
+  # before an intersection; move END earlier/later to finish the blend faster/slower.
+  TURN_BLEND_START = 0.75
+  TURN_BLEND_END = 1.0
+  # Screen-space lane shift tuned by eye. The offset is computed from the
+  # segment's actual projected screen vector, then rotated to the traveler's
+  # right side so it stays perpendicular to the road in all four directions.
 
   def initialize(pathfinder = RoadPathfinder.new)
     @pathfinder = pathfinder
@@ -65,7 +76,7 @@ class CarManager
       delta_col = to[0] - from[0]
       delta_row = to[1] - from[1]
       sx, sy = interpolated_screen_position(camera, from, to, car[:progress])
-      lane_dx, lane_dy = lane_offset_for(delta_col, delta_row)
+      lane_dx, lane_dy = lane_offset_for(path, car[:step_index], car[:progress])
       sx += lane_dx
       sy += lane_dy
 
@@ -74,7 +85,7 @@ class CarManager
 
       args.outputs.sprites << {
         x: sx - w / 2,
-        y: sy - TILE_H / 2 - h / 2,
+        y: sy - TILE_H / 2 - h / 2 + GLOBAL_CAR_Y_BIAS,
         w: w,
         h: h,
         path: sprite_path
@@ -248,8 +259,59 @@ class CarManager
     [sx, sy]
   end
 
-  def lane_offset_for(delta_col, delta_row)
-    RIGHT_HAND_LANE_OFFSETS.fetch([delta_col, delta_row], [0, 0])
+  def lane_offset_for(path, step_index, progress)
+    from = path[step_index]
+    to = path[step_index + 1]
+    return [0, 0] unless from && to
+
+    current_offset = total_direction_offset(to[0] - from[0], to[1] - from[1])
+    next_tile = path[step_index + 2]
+    return current_offset unless next_tile
+    return current_offset if progress <= TURN_BLEND_START
+
+    next_offset = total_direction_offset(next_tile[0] - to[0], next_tile[1] - to[1])
+    # Fine-tune turn feel here by adjusting TURN_BLEND_START / TURN_BLEND_END above.
+    blend = (progress - TURN_BLEND_START) / (TURN_BLEND_END - TURN_BLEND_START)
+    blend = [[blend, 0.0].max, 1.0].min
+
+    [
+      current_offset[0] + (next_offset[0] - current_offset[0]) * blend,
+      current_offset[1] + (next_offset[1] - current_offset[1]) * blend
+    ]
+  end
+
+  def right_hand_lane_offset(delta_col, delta_row)
+    screen_dx, screen_dy = projected_step_vector(delta_col, delta_row)
+    # Flip these signs if the car ends up on the left side of travel instead of the right.
+    right_dx = screen_dy
+    right_dy = -screen_dx
+    length = Math.sqrt((right_dx * right_dx) + (right_dy * right_dy))
+    return [0, 0] if length.zero?
+
+    [
+      # LANE_OFFSET_PIXELS above is the main knob for how dramatic the lane shift looks.
+      right_dx / length * LANE_OFFSET_PIXELS,
+      right_dy / length * LANE_OFFSET_PIXELS
+    ]
+  end
+
+  def total_direction_offset(delta_col, delta_row)
+    lane_dx, lane_dy = right_hand_lane_offset(delta_col, delta_row)
+    bias_dx, bias_dy = art_bias_for(delta_col, delta_row)
+    [lane_dx + bias_dx, lane_dy + bias_dy]
+  end
+
+  def art_bias_for(delta_col, delta_row)
+    # Fine-tune per-direction sidewalk compensation here. Negative Y raises the
+    # car on screen; positive Y lowers it.
+    DIRECTIONAL_ART_BIAS.fetch([delta_col, delta_row], [0, 0])
+  end
+
+  def projected_step_vector(delta_col, delta_row)
+    [
+      (delta_col - delta_row) * (TILE_W / 2.0),
+      -(delta_col + delta_row) * (TILE_W / 4.0)
+    ]
   end
 
   def sprite_for_delta(delta_col, delta_row)
