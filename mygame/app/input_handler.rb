@@ -17,12 +17,12 @@ class InputHandler
   def handle_mode_toggles(args)
     if args.inputs.keyboard.key_down.b
       args.state.mode = (args.state.mode == :build) ? :pan : :build
-      clear_road_drag(args.state)
+      clear_road_preview(args.state)
     end
 
     if args.inputs.keyboard.key_down.r
       args.state.mode = (args.state.mode == :roads) ? :pan : :roads
-      clear_road_drag(args.state)
+      clear_road_preview(args.state)
     end
   end
 
@@ -58,7 +58,7 @@ class InputHandler
 
   def handle_road_input(args, camera)
     mouse = args.inputs.mouse
-    clear_road_drag(args.state) if mouse.key_down.left
+    clear_road_preview(args.state) if mouse.key_down.left
 
     if mouse.button_left
       col, row = screen_to_grid(mouse.x, mouse.y, TILE_W, ORIGIN_X, ORIGIN_Y, camera)
@@ -80,8 +80,8 @@ class InputHandler
 
           if road_kind == args.state.road_drag_kind
             each_straight_step(previous_tile, current_tile) do |from_col, from_row, to_col, to_row|
-              apply_road(args.state.roads, from_col, from_row, road_kind)
-              apply_road(args.state.roads, to_col, to_row, road_kind)
+              apply_preview_road(args.state.road_preview, from_col, from_row, road_kind)
+              apply_preview_road(args.state.road_preview, to_col, to_row, road_kind)
             end
 
             args.state.road_drag_last = current_tile
@@ -90,7 +90,10 @@ class InputHandler
       end
     end
 
-    clear_road_drag(args.state) if mouse.key_up.left
+    if mouse.key_up.left
+      commit_road_preview(args.state)
+      clear_road_preview(args.state)
+    end
   end
 
   def screen_to_grid(mx, my, tile_w, origin_x, origin_y, camera)
@@ -145,6 +148,16 @@ class InputHandler
     roads[key] = merge_road(roads[key], road_kind)
   end
 
+  def apply_preview_road(preview, col, row, road_kind)
+    apply_road(preview, col, row, road_kind)
+  end
+
+  def commit_road_preview(state)
+    state.road_preview.each do |key, road_kind|
+      state.roads[key] = merge_road(state.roads[key], road_kind)
+    end
+  end
+
   def merge_road(existing, incoming)
     return incoming unless existing
     return existing if existing == incoming
@@ -156,7 +169,8 @@ class InputHandler
     "#{col},#{row}"
   end
 
-  def clear_road_drag(state)
+  def clear_road_preview(state)
+    state.road_preview = {}
     state.road_drag_last = nil
     state.road_drag_kind = nil
   end

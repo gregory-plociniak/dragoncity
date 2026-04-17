@@ -20,6 +20,7 @@ def tick args
   args.state.mode           ||= :pan
   args.state.buildings      ||= {}
   args.state.roads          ||= {}
+  args.state.road_preview   ||= {}
   args.state.road_drag_last ||= nil
   args.state.road_drag_kind ||= nil
 
