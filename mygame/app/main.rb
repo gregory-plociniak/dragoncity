@@ -13,9 +13,13 @@ BUILDING_TILE_X_OFFSET = 0
 BUILDING_TILE_Y_OFFSET = 26
 BUILD_INVALID_FLASH_FRAMES = 20
 
-$camera = IsometricCamera.new
-$grid_renderer = GridRenderer.new
-$input_handler = InputHandler.new
+def initialize_runtime_objects
+  $camera = IsometricCamera.new
+  $grid_renderer = GridRenderer.new
+  $input_handler = InputHandler.new
+end
+
+initialize_runtime_objects
 
 def tick args
   args.state.mode           ||= :pan
@@ -31,9 +35,14 @@ def tick args
     build: Layout.rect(row: 0, col: 3, w: 3, h: 1),
     roads: Layout.rect(row: 0, col: 6, w: 3, h: 1)
   }
+  args.state.reset_button ||= Layout.rect(row: 0, col: 21, w: 3, h: 1)
   args.state.frame_index += 1
 
   args.outputs.background_color = [0, 0, 0]
   $grid_renderer.render(args, $camera)
   $input_handler.process(args, $camera)
+end
+
+def reset args
+  initialize_runtime_objects
 end

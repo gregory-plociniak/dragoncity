@@ -18,6 +18,11 @@ class InputHandler
   def handle_ui_click(args)
     return false unless args.inputs.mouse.click
 
+    if args.inputs.mouse.intersect_rect?(args.state.reset_button)
+      GTK.reset_next_tick
+      return true
+    end
+
     args.state.mode_buttons.each do |mode, rect|
       next unless args.inputs.mouse.intersect_rect?(rect)
 

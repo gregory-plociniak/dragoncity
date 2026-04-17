@@ -29,29 +29,36 @@ class GridRenderer
     end
 
     render_mode_buttons(args)
+    render_reset_button(args)
   end
 
   private
 
   def render_mode_buttons(args)
     args.state.mode_buttons.each do |mode, rect|
-      active = args.state.mode == mode
-
-      args.outputs.sprites << rect.merge(
-        path: :solid,
-        r: active ? 80 : 40,
-        g: active ? 140 : 70,
-        b: active ? 220 : 110,
-        a: 220
-      )
-
-      args.outputs.labels << rect.center.merge(
-        text: mode.to_s.upcase,
-        r: 255, g: 255, b: 255,
-        anchor_x: 0.5,
-        anchor_y: 0.5
-      )
+      render_button(args, rect, mode.to_s.upcase, active: args.state.mode == mode)
     end
+  end
+
+  def render_reset_button(args)
+    render_button(args, args.state.reset_button, 'RESET')
+  end
+
+  def render_button(args, rect, label, active: false)
+    args.outputs.sprites << rect.merge(
+      path: :solid,
+      r: active ? 80 : 40,
+      g: active ? 140 : 70,
+      b: active ? 220 : 110,
+      a: 220
+    )
+
+    args.outputs.labels << rect.center.merge(
+      text: label,
+      r: 255, g: 255, b: 255,
+      anchor_x: 0.5,
+      anchor_y: 0.5
+    )
   end
 
   def ground_tile_color(state, tile_key)
