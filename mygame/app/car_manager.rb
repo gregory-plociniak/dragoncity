@@ -14,38 +14,42 @@ class CarManager
 
   def recompute(state)
     building_tiles = state.buildings.keys.map { |key| parse_key(key) }
+    existing_by_key = state.cars.each_with_object({}) { |car, hash| hash[car[:pair_key]] = car }
 
     new_cars = []
-    building_tiles.combination(2).each do |(c1, r1), (c2, r2)|
-      next unless [(c1 - c2).abs, (r1 - r2).abs].max >= MIN_PAIR_DISTANCE
+    building_tiles.combination(2).each do |b1, b2|
+      next unless pair_far_enough?(b1, b2)
 
-      forward_path = best_road_path(state.roads, [c1, r1], [c2, r2])
-      next unless forward_path
+      endpoints = [b1, b2].sort
+      key = pair_key_for(endpoints)
+      existing = existing_by_key[key]
 
-      path = build_shuttle_loop(forward_path)
-      next if path.size < 2
+      car = if existing
+              update_existing_car(state.roads, existing, endpoints)
+            else
+              spawn_new_car(state.roads, endpoints, key)
+            end
 
-      new_cars << preserve_progress_or_new(state.cars, path)
+      new_cars << car if car
     end
 
     state.cars = new_cars
   end
 
   def tick(state)
+    survivors = []
     state.cars.each do |car|
-      car[:progress] += car[:speed]
-      while car[:progress] >= 1.0
-        car[:progress] -= 1.0
-        car[:step_index] = (car[:step_index] + 1) % car[:path].size
-      end
+      survivors << car if advance_car(state, car)
     end
+    state.cars = survivors
   end
 
   def render(args, camera)
     args.state.cars.each do |car|
-      path = car[:path]
+      path = car[:leg][:path]
       from = path[car[:step_index]]
-      to   = path[(car[:step_index] + 1) % path.size]
+      to   = path[car[:step_index] + 1]
+      next unless from && to
 
       from_sx, from_sy = camera.world_to_screen(from[0], from[1], TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
       to_sx, to_sy     = camera.world_to_screen(to[0], to[1], TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
@@ -68,6 +72,110 @@ class CarManager
   end
 
   private
+
+  def advance_car(state, car)
+    car[:progress] += car[:speed]
+    while car[:progress] >= 1.0
+      car[:progress] -= 1.0
+      car[:step_index] += 1
+
+      next if car[:step_index] < car[:leg][:path].size - 1
+
+      next_leg = plan_next_leg(state.roads, car)
+      return false unless next_leg
+
+      car[:leg] = next_leg
+      car[:step_index] = 0
+      car[:pending_repath] = false
+    end
+    true
+  end
+
+  def plan_next_leg(roads, car)
+    new_direction = 1 - car[:leg][:direction]
+    origin_building, destination_building = endpoints_for_direction(car[:endpoints], new_direction)
+
+    path = best_road_path(roads, origin_building, destination_building)
+    return nil unless path
+    return nil if path.size < 2
+
+    { path: path, direction: new_direction }
+  end
+
+  def endpoints_for_direction(endpoints, direction)
+    direction == 0 ? endpoints : endpoints.reverse
+  end
+
+  def update_existing_car(roads, car, endpoints)
+    car[:endpoints] = endpoints
+
+    if current_leg_valid?(roads, car)
+      car[:pending_repath] = true
+      return car
+    end
+
+    recover_broken_leg(roads, car) ? car : nil
+  end
+
+  def current_leg_valid?(roads, car)
+    path = car[:leg][:path]
+    return false unless path
+    idx = car[:step_index]
+    return false if idx >= path.size - 1
+
+    (idx...(path.size - 1)).each do |i|
+      from_col, from_row = path[i]
+      to_col, to_row = path[i + 1]
+      return false unless RoadGraph.road_tile?(roads, from_col, from_row)
+      return false unless RoadGraph.road_tile?(roads, to_col, to_row)
+      return false unless RoadGraph.traversable_edge?(roads, from_col, from_row, to_col, to_row)
+    end
+    true
+  end
+
+  def recover_broken_leg(roads, car)
+    path = car[:leg][:path]
+    current_tile = path[car[:step_index]]
+    goal_tile = path[-1]
+
+    return false unless current_tile && goal_tile
+    return false unless RoadGraph.road_tile?(roads, current_tile[0], current_tile[1])
+    return false unless RoadGraph.road_tile?(roads, goal_tile[0], goal_tile[1])
+
+    new_path = @pathfinder.find_path(roads, current_tile, goal_tile)
+    return false unless new_path
+    return false if new_path.size < 2
+
+    car[:leg] = { path: new_path, direction: car[:leg][:direction] }
+    car[:step_index] = 0
+    car[:progress] = 0.0
+    car[:pending_repath] = false
+    true
+  end
+
+  def spawn_new_car(roads, endpoints, key)
+    path = best_road_path(roads, endpoints[0], endpoints[1])
+    return nil unless path
+    return nil if path.size < 2
+
+    {
+      pair_key: key,
+      endpoints: endpoints,
+      leg: { path: path, direction: 0 },
+      step_index: 0,
+      progress: 0.0,
+      speed: DEFAULT_SPEED,
+      pending_repath: false
+    }
+  end
+
+  def pair_far_enough?(b1, b2)
+    [(b1[0] - b2[0]).abs, (b1[1] - b2[1]).abs].max >= MIN_PAIR_DISTANCE
+  end
+
+  def pair_key_for(endpoints)
+    "#{endpoints[0][0]},#{endpoints[0][1]}|#{endpoints[1][0]},#{endpoints[1][1]}"
+  end
 
   def parse_key(key)
     col, row = key.split(',')
@@ -101,25 +209,6 @@ class CarManager
     return false if candidate_path.length > current_best_path.length
 
     compare_paths(candidate_path, current_best_path) < 0
-  end
-
-  def build_shuttle_loop(forward_path)
-    return forward_path if forward_path.length < 2
-
-    return_segment = forward_path.reverse[1...-1] || []
-    forward_path + return_segment
-  end
-
-  def preserve_progress_or_new(existing_cars, path)
-    existing = existing_cars.find { |car| car[:path] == path }
-    return existing if existing
-
-    {
-      path: path,
-      step_index: 0,
-      progress: 0.0,
-      speed: DEFAULT_SPEED
-    }
   end
 
   def compare_paths(left_path, right_path)
