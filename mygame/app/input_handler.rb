@@ -1,6 +1,6 @@
 class InputHandler
   def process(args, camera)
-    handle_mode_toggles(args)
+    return if handle_ui_click(args)
 
     case args.state.mode
     when :pan
@@ -14,16 +14,22 @@ class InputHandler
 
   private
 
-  def handle_mode_toggles(args)
-    if args.inputs.keyboard.key_down.b
-      args.state.mode = (args.state.mode == :build) ? :pan : :build
-      clear_road_preview(args.state)
+  def handle_ui_click(args)
+    return false unless args.inputs.mouse.click
+
+    args.state.mode_buttons.each do |mode, rect|
+      next unless args.inputs.mouse.intersect_rect?(rect)
+
+      change_mode(args, mode)
+      return true
     end
 
-    if args.inputs.keyboard.key_down.r
-      args.state.mode = (args.state.mode == :roads) ? :pan : :roads
-      clear_road_preview(args.state)
-    end
+    false
+  end
+
+  def change_mode(args, new_mode)
+    clear_road_preview(args.state)
+    args.state.mode = new_mode
   end
 
   def handle_pan_input(args, camera)

@@ -23,6 +23,11 @@ def tick args
   args.state.road_preview   ||= {}
   args.state.road_drag_last ||= nil
   args.state.road_drag_kind ||= nil
+  args.state.mode_buttons   ||= {
+    pan:   Layout.rect(row: 0, col: 0, w: 3, h: 1),
+    build: Layout.rect(row: 0, col: 3, w: 3, h: 1),
+    roads: Layout.rect(row: 0, col: 6, w: 3, h: 1)
+  }
 
   args.outputs.background_color = [0, 0, 0]
   $grid_renderer.render(args, $camera)

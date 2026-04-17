@@ -20,15 +20,31 @@ class GridRenderer
       end
     end
 
-    args.outputs.labels << {
-      x: 10,
-      y: 710,
-      text: "Mode: #{args.state.mode.upcase}  [B] build  [R] roads",
-      r: 255, g: 255, b: 255
-    }
+    render_mode_buttons(args)
   end
 
   private
+
+  def render_mode_buttons(args)
+    args.state.mode_buttons.each do |mode, rect|
+      active = args.state.mode == mode
+
+      args.outputs.sprites << rect.merge(
+        path: :solid,
+        r: active ? 80 : 40,
+        g: active ? 140 : 70,
+        b: active ? 220 : 110,
+        a: 220
+      )
+
+      args.outputs.labels << rect.center.merge(
+        text: mode.to_s.upcase,
+        r: 255, g: 255, b: 255,
+        anchor_x: 0.5,
+        anchor_y: 0.5
+      )
+    end
+  end
 
   def draw_tile(args, sx, sy, path, a: 255)
     tile_w, tile_h = tile_dimensions(path)
