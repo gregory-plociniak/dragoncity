@@ -3,25 +3,16 @@ class GridRenderer
     GRID_SIZE.times do |row|
       GRID_SIZE.times do |col|
         sx, sy = camera.world_to_screen(col, row, TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
+        road_path = road_sprite_path(args.state.roads["#{col},#{row}"])
+        tile_path = road_path || 'sprites/ground.png'
 
         args.outputs.sprites << {
           x: sx - TILE_W / 2,
           y: sy - TILE_H,
           w: TILE_W,
           h: TILE_H,
-          path: 'sprites/ground.png'
+          path: tile_path
         }
-
-        road_path = road_sprite_path(args.state.roads["#{col},#{row}"])
-        if road_path
-          args.outputs.sprites << {
-            x: sx - TILE_W / 2,
-            y: sy - TILE_H,
-            w: TILE_W,
-            h: TILE_H,
-            path: road_path
-          }
-        end
 
         if args.state.buildings["#{col},#{row}"]
           bw = (TILE_W * BUILDING_SCALE).round
@@ -50,9 +41,9 @@ class GridRenderer
   def road_sprite_path(road_kind)
     case road_kind
     when :ne
-      'sprites/road_NW.png'
-    when :nw
       'sprites/road_NE.png'
+    when :nw
+      'sprites/road_NW.png'
     when :cross
       'sprites/crossroad.png'
     end
