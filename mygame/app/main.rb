@@ -33,7 +33,7 @@ end
 
 initialize_runtime_objects
 
-def tick args
+def tick(args)
   GameState.initialize!(args.state)
   args.state.frame_index += 1
 
@@ -44,6 +44,6 @@ def tick args
   $input_handler.process(args, $camera)
 end
 
-def reset args
+def reset(args)
   initialize_runtime_objects
 end
