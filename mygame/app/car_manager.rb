@@ -7,7 +7,6 @@ class CarManager
   }
   MIN_PAIR_DISTANCE = 4
   DEFAULT_SPEED = 0.02
-  TILE_CAPACITY = 2
   CROSSOVER_THRESHOLD = 0.5
   CROSSOVER_EPSILON = 0.001
   STALL_TICKS_BEFORE_REPATH = 180
@@ -38,7 +37,7 @@ class CarManager
     building_tiles = state.buildings.keys.map { |key| parse_key(key) }
     existing_by_key = state.cars.each_with_object({}) { |car, hash| hash[car[:pair_key]] = car }
 
-    projected_occupancy = build_occupancy(state.cars)
+    projected_slot_occupancy = build_slot_occupancy(state.cars)
     new_cars = []
     building_tiles.combination(2).each do |b1, b2|
       next unless pair_far_enough?(b1, b2)
@@ -50,25 +49,26 @@ class CarManager
       car = if existing
               update_existing_car(state.roads, existing, endpoints)
             else
-              spawn_new_car(state.roads, endpoints, key, projected_occupancy)
+              spawn_new_car(state.roads, endpoints, key, projected_slot_occupancy)
             end
 
       next unless car
 
       new_cars << car
-      projected_occupancy[car[:leg][:path][0]] += 1 unless existing
+      projected_slot_occupancy[current_slot(car)] = car unless existing
     end
 
     state.cars = new_cars
   end
 
   def tick(state)
-    state.car_occupancy = build_occupancy(state.cars)
-    denied = resolve_crossings(state.cars, state.car_occupancy)
+    state.car_slot_occupancy = build_slot_occupancy(state.cars)
+    midpoint_denied = resolve_midpoint_crossings(state.cars, state.car_slot_occupancy)
+    step_denied = resolve_step_crossings(state.cars, state.car_slot_occupancy)
 
     survivors = []
     state.cars.each do |car|
-      survivors << car if advance_car(state, car, denied.include?(car))
+      survivors << car if advance_car(state, car, midpoint_denied.include?(car), step_denied.include?(car))
     end
     state.cars = survivors
   end
@@ -102,14 +102,16 @@ class CarManager
 
   private
 
-  def advance_car(state, car, denied)
-    if denied
-      car[:progress] = [car[:progress] + car[:speed], CROSSOVER_THRESHOLD - CROSSOVER_EPSILON].min
-      car[:stall_ticks] = (car[:stall_ticks] || 0) + 1
-      if car[:stall_ticks] >= STALL_TICKS_BEFORE_REPATH
-        try_mid_leg_repath(state, car)
-        car[:stall_ticks] = 0
-      end
+  def advance_car(state, car, midpoint_denied, step_denied)
+    if midpoint_denied
+      clamp_below_midpoint(car)
+      record_stall(state, car)
+      return true
+    end
+
+    if step_denied
+      clamp_below_step(car)
+      record_stall(state, car)
       return true
     end
 
@@ -131,51 +133,117 @@ class CarManager
     true
   end
 
-  def build_occupancy(cars)
-    occupancy = Hash.new(0)
+  def clamp_below_midpoint(car)
+    car[:progress] = [car[:progress] + car[:speed], CROSSOVER_THRESHOLD - CROSSOVER_EPSILON].min
+  end
+
+  def clamp_below_step(car)
+    car[:progress] = [car[:progress] + car[:speed], 1.0 - CROSSOVER_EPSILON].min
+  end
+
+  def record_stall(state, car)
+    car[:stall_ticks] = (car[:stall_ticks] || 0) + 1
+    if car[:stall_ticks] >= STALL_TICKS_BEFORE_REPATH
+      try_mid_leg_repath(state, car)
+      car[:stall_ticks] = 0
+    end
+  end
+
+  def build_slot_occupancy(cars)
+    occupancy = {}
     cars.each do |car|
-      tile = current_tile(car)
-      occupancy[tile] += 1 if tile
+      slot = current_slot(car)
+      occupancy[slot] = car if slot
     end
     occupancy
   end
 
-  def current_tile(car)
+  def current_slot(car)
     path = car[:leg][:path]
     idx = car[:step_index]
     return nil unless path && path[idx]
-    return path[idx] unless path[idx + 1]
 
-    car[:progress] < CROSSOVER_THRESHOLD ? path[idx] : path[idx + 1]
+    from = path[idx]
+    to = path[idx + 1]
+    if from && to
+      half = car[:progress] < CROSSOVER_THRESHOLD ? :first : :second
+      return [from[0], from[1], to[0], to[1], half]
+    end
+
+    return [path[idx - 1][0], path[idx - 1][1], from[0], from[1], :second] if idx.positive? && path[idx - 1]
+
+    [from[0], from[1], from[0], from[1], :second]
   end
 
-  def resolve_crossings(cars, occupancy)
-    intents = cars.filter_map { |car| crossing_intent(car) }
+  def resolve_midpoint_crossings(cars, occupancy)
+    intents = cars.filter_map { |car| midpoint_intent(car) }
+    resolve_gate_crossings(intents, occupancy)
+  end
+
+  def resolve_step_crossings(cars, occupancy)
+    intents = cars.filter_map { |car| step_intent(car) }
+    resolve_gate_crossings(intents, occupancy)
+  end
+
+  def resolve_gate_crossings(intents, occupancy)
     denied = []
 
-    intents.group_by { |intent| intent[:to_tile] }.each do |to_tile, group|
-      remaining = TILE_CAPACITY - occupancy[to_tile]
-      next if group.size <= remaining
-
-      if remaining <= 0
+    intents.group_by { |intent| intent[:target_slot] }.each do |target_slot, group|
+      if target_slot_occupied_by_other?(target_slot, occupancy, group)
         group.each { |intent| denied << intent[:car] }
-      else
-        losers = rank_by_right_hand_yield(group).drop(remaining)
-        losers.each { |intent| denied << intent[:car] }
+        next
       end
+
+      next if group.size <= 1
+
+      losers = rank_by_right_hand_yield(group).drop(1)
+      losers.each { |intent| denied << intent[:car] }
     end
 
     denied
   end
 
-  def crossing_intent(car)
+  def target_slot_occupied_by_other?(target_slot, occupancy, group)
+    occupant = occupancy[target_slot]
+    return false unless occupant
+
+    group.none? { |intent| intent[:car].equal?(occupant) }
+  end
+
+  def midpoint_intent(car)
     path = car[:leg][:path]
     idx = car[:step_index]
-    return nil unless path && path[idx] && path[idx + 1]
+    from = path[idx]
+    to = path[idx + 1]
+    return nil unless from && to
     return nil unless car[:progress] < CROSSOVER_THRESHOLD
     return nil unless car[:progress] + car[:speed] >= CROSSOVER_THRESHOLD
 
-    { car: car, from_tile: path[idx], to_tile: path[idx + 1] }
+    {
+      car: car,
+      target_slot: [from[0], from[1], to[0], to[1], :second],
+      from_tile: from,
+      to_tile: to
+    }
+  end
+
+  def step_intent(car)
+    path = car[:leg][:path]
+    idx = car[:step_index]
+    from = path[idx]
+    to = path[idx + 1]
+    next_to = path[idx + 2]
+    return nil unless from && to && next_to
+    return nil unless car[:progress] >= CROSSOVER_THRESHOLD
+    return nil unless car[:progress] + car[:speed] >= 1.0
+
+    {
+      car: car,
+      target_slot: [to[0], to[1], next_to[0], next_to[1], :first],
+      from_tile: to,
+      to_tile: next_to,
+      approach_from: from
+    }
   end
 
   def rank_by_right_hand_yield(group)
@@ -183,24 +251,32 @@ class CarManager
       yielders = group.count do |other|
         !other.equal?(intent) && approaching_from_right?(intent, other)
       end
-      from_col, from_row = intent[:from_tile]
+      from_col, from_row = yield_origin_tile(intent)
       [yielders, tile_order(from_col, from_row)]
     end
   end
 
   def approaching_from_right?(intent, other)
-    my_dx, my_dy = projected_step_vector(
-      intent[:to_tile][0] - intent[:from_tile][0],
-      intent[:to_tile][1] - intent[:from_tile][1]
-    )
-    other_dx, other_dy = projected_step_vector(
-      other[:to_tile][0] - other[:from_tile][0],
-      other[:to_tile][1] - other[:from_tile][1]
-    )
+    my_dx, my_dy = intent_step_vector(intent)
+    other_dx, other_dy = intent_step_vector(other)
     # Screen-space cross product: negative means `other` is 90° clockwise
     # (to the right) of `intent`, matching the same right-perpendicular
     # convention used by right_hand_lane_offset.
     (my_dx * other_dy) - (my_dy * other_dx) < 0
+  end
+
+  def intent_step_vector(intent)
+    from_tile = intent[:approach_from] || intent[:from_tile]
+    to_tile = intent[:approach_from] ? intent[:from_tile] : intent[:to_tile]
+
+    projected_step_vector(
+      to_tile[0] - from_tile[0],
+      to_tile[1] - from_tile[1]
+    )
+  end
+
+  def yield_origin_tile(intent)
+    intent[:approach_from] || intent[:from_tile]
   end
 
   def try_mid_leg_repath(state, car)
@@ -283,11 +359,13 @@ class CarManager
     true
   end
 
-  def spawn_new_car(roads, endpoints, key, occupancy)
+  def spawn_new_car(roads, endpoints, key, slot_occupancy)
     path = best_road_path(roads, endpoints[0], endpoints[1])
     return nil unless path
     return nil if path.size < 2
-    return nil if occupancy[path[0]] >= TILE_CAPACITY
+
+    spawn_slot = [path[0][0], path[0][1], path[1][0], path[1][1], :first]
+    return nil if slot_occupancy[spawn_slot]
 
     {
       pair_key: key,
