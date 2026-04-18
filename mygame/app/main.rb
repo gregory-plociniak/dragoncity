@@ -11,15 +11,15 @@ require 'app/car_manager.rb'
 require 'app/input_handler.rb'
 
 GRID_SIZE = 10
-TILE_W    = 132
-TILE_H    = 101
+TILE_W = 132
+TILE_H = 101
 # Diamond footprint height (ground projection), distinct from TILE_H which is the
 # full sprite height including elevation pixels above the diamond.
 FOOTPRINT_H = TILE_W / 2
 # ORIGIN_X ~540 centers the 10x10 grid (full width ~1188px) on a 1280px screen
-ORIGIN_X  = 540
-ORIGIN_Y  = 660
-PAN_SPEED        = 4
+ORIGIN_X = 540
+ORIGIN_Y = 660
+PAN_SPEED = 4
 BUILDING_TILE_X_OFFSET = 0
 BUILDING_TILE_Y_OFFSET = 26
 BUILD_INVALID_FLASH_FRAMES = 20
