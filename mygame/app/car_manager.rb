@@ -247,8 +247,8 @@ class CarManager
   end
 
   def interpolated_screen_position(camera, from, to, progress)
-    from_sx, from_sy = camera.world_to_screen(from[0], from[1], TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
-    to_sx, to_sy = camera.world_to_screen(to[0], to[1], TILE_W, TILE_H, ORIGIN_X, ORIGIN_Y)
+    from_sx, from_sy = camera.world_to_screen(from[0], from[1], TILE_W, FOOTPRINT_H, ORIGIN_X, ORIGIN_Y)
+    to_sx, to_sy = camera.world_to_screen(to[0], to[1], TILE_W, FOOTPRINT_H, ORIGIN_X, ORIGIN_Y)
 
     sx = from_sx + (to_sx - from_sx) * progress
     sy = from_sy + (to_sy - from_sy) * progress
