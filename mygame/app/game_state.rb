@@ -3,6 +3,7 @@ module GameState
     state.mode           ||= :pan
     state.buildings      ||= {}
     state.cars           ||= []
+    state.car_occupancy  ||= {}
     state.roads          ||= {}
     state.road_preview   ||= {}
     state.road_drag_last ||= nil

@@ -7,6 +7,10 @@ class CarManager
   }
   MIN_PAIR_DISTANCE = 4
   DEFAULT_SPEED = 0.02
+  TILE_CAPACITY = 2
+  CROSSOVER_THRESHOLD = 0.5
+  CROSSOVER_EPSILON = 0.001
+  STALL_TICKS_BEFORE_REPATH = 180
   # Main lane-distance control. Increase to push cars farther from the road
   # centerline; decrease to pull them back toward the middle.
   LANE_OFFSET_PIXELS = 5
@@ -34,6 +38,7 @@ class CarManager
     building_tiles = state.buildings.keys.map { |key| parse_key(key) }
     existing_by_key = state.cars.each_with_object({}) { |car, hash| hash[car[:pair_key]] = car }
 
+    projected_occupancy = build_occupancy(state.cars)
     new_cars = []
     building_tiles.combination(2).each do |b1, b2|
       next unless pair_far_enough?(b1, b2)
@@ -45,19 +50,25 @@ class CarManager
       car = if existing
               update_existing_car(state.roads, existing, endpoints)
             else
-              spawn_new_car(state.roads, endpoints, key)
+              spawn_new_car(state.roads, endpoints, key, projected_occupancy)
             end
 
-      new_cars << car if car
+      next unless car
+
+      new_cars << car
+      projected_occupancy[car[:leg][:path][0]] += 1 unless existing
     end
 
     state.cars = new_cars
   end
 
   def tick(state)
+    state.car_occupancy = build_occupancy(state.cars)
+    denied = resolve_crossings(state.cars, state.car_occupancy)
+
     survivors = []
     state.cars.each do |car|
-      survivors << car if advance_car(state, car)
+      survivors << car if advance_car(state, car, denied.include?(car))
     end
     state.cars = survivors
   end
@@ -91,8 +102,19 @@ class CarManager
 
   private
 
-  def advance_car(state, car)
+  def advance_car(state, car, denied)
+    if denied
+      car[:progress] = [car[:progress] + car[:speed], CROSSOVER_THRESHOLD - CROSSOVER_EPSILON].min
+      car[:stall_ticks] = (car[:stall_ticks] || 0) + 1
+      if car[:stall_ticks] >= STALL_TICKS_BEFORE_REPATH
+        try_mid_leg_repath(state, car)
+        car[:stall_ticks] = 0
+      end
+      return true
+    end
+
     car[:progress] += car[:speed]
+    car[:stall_ticks] = 0
     while car[:progress] >= 1.0
       car[:progress] -= 1.0
       car[:step_index] += 1
@@ -106,6 +128,95 @@ class CarManager
       car[:step_index] = 0
       car[:pending_repath] = false
     end
+    true
+  end
+
+  def build_occupancy(cars)
+    occupancy = Hash.new(0)
+    cars.each do |car|
+      tile = current_tile(car)
+      occupancy[tile] += 1 if tile
+    end
+    occupancy
+  end
+
+  def current_tile(car)
+    path = car[:leg][:path]
+    idx = car[:step_index]
+    return nil unless path && path[idx]
+    return path[idx] unless path[idx + 1]
+
+    car[:progress] < CROSSOVER_THRESHOLD ? path[idx] : path[idx + 1]
+  end
+
+  def resolve_crossings(cars, occupancy)
+    intents = cars.filter_map { |car| crossing_intent(car) }
+    denied = []
+
+    intents.group_by { |intent| intent[:to_tile] }.each do |to_tile, group|
+      remaining = TILE_CAPACITY - occupancy[to_tile]
+      next if group.size <= remaining
+
+      if remaining <= 0
+        group.each { |intent| denied << intent[:car] }
+      else
+        losers = rank_by_right_hand_yield(group).drop(remaining)
+        losers.each { |intent| denied << intent[:car] }
+      end
+    end
+
+    denied
+  end
+
+  def crossing_intent(car)
+    path = car[:leg][:path]
+    idx = car[:step_index]
+    return nil unless path && path[idx] && path[idx + 1]
+    return nil unless car[:progress] < CROSSOVER_THRESHOLD
+    return nil unless car[:progress] + car[:speed] >= CROSSOVER_THRESHOLD
+
+    { car: car, from_tile: path[idx], to_tile: path[idx + 1] }
+  end
+
+  def rank_by_right_hand_yield(group)
+    group.sort_by do |intent|
+      yielders = group.count do |other|
+        !other.equal?(intent) && approaching_from_right?(intent, other)
+      end
+      from_col, from_row = intent[:from_tile]
+      [yielders, tile_order(from_col, from_row)]
+    end
+  end
+
+  def approaching_from_right?(intent, other)
+    my_dx, my_dy = projected_step_vector(
+      intent[:to_tile][0] - intent[:from_tile][0],
+      intent[:to_tile][1] - intent[:from_tile][1]
+    )
+    other_dx, other_dy = projected_step_vector(
+      other[:to_tile][0] - other[:from_tile][0],
+      other[:to_tile][1] - other[:from_tile][1]
+    )
+    # Screen-space cross product: negative means `other` is 90° clockwise
+    # (to the right) of `intent`, matching the same right-perpendicular
+    # convention used by right_hand_lane_offset.
+    (my_dx * other_dy) - (my_dy * other_dx) < 0
+  end
+
+  def try_mid_leg_repath(state, car)
+    path = car[:leg][:path]
+    current = path[car[:step_index]]
+    goal = path[-1]
+    return false unless current && goal
+
+    new_path = @pathfinder.find_path(state.roads, current, goal)
+    return false unless new_path
+    return false if new_path.size < 2
+    return false if new_path == path[car[:step_index]..]
+
+    car[:leg] = { path: new_path, direction: car[:leg][:direction] }
+    car[:step_index] = 0
+    car[:progress] = 0.0
     true
   end
 
@@ -168,13 +279,15 @@ class CarManager
     car[:step_index] = 0
     car[:progress] = 0.0
     car[:pending_repath] = false
+    car[:stall_ticks] = 0
     true
   end
 
-  def spawn_new_car(roads, endpoints, key)
+  def spawn_new_car(roads, endpoints, key, occupancy)
     path = best_road_path(roads, endpoints[0], endpoints[1])
     return nil unless path
     return nil if path.size < 2
+    return nil if occupancy[path[0]] >= TILE_CAPACITY
 
     {
       pair_key: key,
@@ -183,7 +296,8 @@ class CarManager
       step_index: 0,
       progress: 0.0,
       speed: DEFAULT_SPEED,
-      pending_repath: false
+      pending_repath: false,
+      stall_ticks: 0
     }
   end
 
