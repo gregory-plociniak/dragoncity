@@ -9,7 +9,12 @@ class CarManager
   DEFAULT_SPEED = 0.02
   CROSSOVER_THRESHOLD = 0.5
   CROSSOVER_EPSILON = 0.001
-  ALL_WAY_STOP_LINE_PROGRESS = 0.8
+  # Hold earlier on the incoming segment so the sprite waits before the
+  # crossroad tile instead of visually overlapping the intersection art.
+  ALL_WAY_STOP_LINE_PROGRESS = 0.65
+  # Keep the next car visibly behind a stopped leader on the same approach
+  # segment instead of letting it clamp almost at the midpoint.
+  ALL_WAY_STOP_QUEUE_PROGRESS = 0.3
   STOP_BRAKE_PER_TICK = 0.003
   STOP_ACCEL_PER_TICK = 0.004
   STALL_TICKS_BEFORE_REPATH = 180
@@ -116,6 +121,12 @@ class CarManager
   def advance_car(state, car, midpoint_denied, stop_denied, step_denied)
     stop_crossroad = stop_controlled_crossroad_for(state.roads, car)
 
+    if stop_queue_denied?(state.car_slot_occupancy, car, stop_crossroad)
+      clamp_below_stop_queue(car)
+      reset_stall(car)
+      return true
+    end
+
     if midpoint_denied
       clamp_below_midpoint(car)
       record_stall(state, car)
@@ -176,6 +187,12 @@ class CarManager
 
   def clamp_below_midpoint(car)
     car[:progress] = [car[:progress] + movement_speed(car), CROSSOVER_THRESHOLD - CROSSOVER_EPSILON].min
+  end
+
+  def clamp_below_stop_queue(car)
+    limit = [car[:progress], ALL_WAY_STOP_QUEUE_PROGRESS].max
+    car[:progress] = [car[:progress] + movement_speed(car), limit].min
+    car[:current_speed] = 0.0 if car[:progress] >= ALL_WAY_STOP_QUEUE_PROGRESS
   end
 
   def clamp_below_stop_line(car)
@@ -600,6 +617,26 @@ class CarManager
       car[:stop_crossroad] == stop_crossroad &&
       car[:stop_go_token] != stop_crossroad &&
       at_or_past_stop_line?(car)
+  end
+
+  def stop_queue_denied?(occupancy, car, stop_crossroad)
+    return false unless stop_crossroad
+    return false if car[:stop_go_token] == stop_crossroad
+    return false if car[:progress] >= ALL_WAY_STOP_QUEUE_PROGRESS
+    return false unless car[:progress] + movement_speed(car) >= ALL_WAY_STOP_QUEUE_PROGRESS
+
+    occupant = occupancy[second_half_slot(car)]
+    occupant && !occupant.equal?(car)
+  end
+
+  def second_half_slot(car)
+    path = car[:leg][:path]
+    idx = car[:step_index]
+    from = path[idx]
+    to = path[idx + 1]
+    return nil unless from && to
+
+    [from[0], from[1], to[0], to[1], :second]
   end
 
   def at_or_past_stop_line?(car)
