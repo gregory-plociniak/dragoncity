@@ -29,6 +29,6 @@ class CarManager
   end
 
   def enqueue_world(args, camera, queue)
-    @renderer.enqueue_world(args.state.cars, camera, queue)
+    @renderer.enqueue_world(args.state.cars, args.state.roads, camera, queue)
   end
 end

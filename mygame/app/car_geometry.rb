@@ -34,4 +34,45 @@ module CarGeometry
 
     [from[0], from[1], to[0], to[1], :second]
   end
+
+  def self.crossroad_turn_context(roads, car)
+    path = car.dig(:leg, :path)
+    idx = car[:step_index]
+    return nil unless path && idx
+
+    incoming_context = build_turn_context(
+      roads,
+      path[idx],
+      path[idx + 1],
+      path[idx + 2],
+      :incoming
+    )
+    return incoming_context if incoming_context
+
+    return nil unless idx.positive?
+
+    build_turn_context(
+      roads,
+      path[idx - 1],
+      path[idx],
+      path[idx + 1],
+      :outgoing
+    )
+  end
+
+  def self.build_turn_context(roads, from, via, to, segment_role)
+    return nil unless from && via && to
+    return nil unless RoadGraph.road_kind_at(roads, via[0], via[1]) == :cross
+
+    inbound_delta = [via[0] - from[0], via[1] - from[1]]
+    outbound_delta = [to[0] - via[0], to[1] - via[1]]
+    return nil if inbound_delta == outbound_delta
+
+    {
+      crossroad: via,
+      inbound_delta: inbound_delta,
+      outbound_delta: outbound_delta,
+      segment_role: segment_role
+    }
+  end
 end
