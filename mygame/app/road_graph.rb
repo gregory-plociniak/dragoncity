@@ -33,7 +33,7 @@ module RoadGraph
       next unless road_tile?(roads, next_col, next_row)
 
       [next_col, next_row]
-    end.sort_by { |next_col, next_row| tile_order(next_col, next_row) }
+    end.sort_by { |next_col, next_row| GridCoordinates.tile_order(next_col, next_row) }
   end
 
   def self.traversable_edge?(roads, from_col, from_row, to_col, to_row)
@@ -49,7 +49,7 @@ module RoadGraph
     CONNECTIONS.fetch(road_kind, []).include?([delta_col, delta_row])
   end
 
-  def self.tile_order(col, row)
-    row * GRID_SIZE + col
+  def self.road_kind_at(roads, col, row)
+    roads[GridCoordinates.tile_key(col, row)]
   end
 end

@@ -18,4 +18,8 @@ module GridCoordinates
   def self.tile_key(col, row)
     "#{col},#{row}"
   end
+
+  def self.tile_order(col, row)
+    row * GRID_SIZE + col
+  end
 end

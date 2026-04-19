@@ -14,7 +14,7 @@ class GridRenderer
         sx, sy = camera.world_to_screen(col, row, TILE_W, FOOTPRINT_H, ORIGIN_X, ORIGIN_Y)
         tile_key = GridCoordinates.tile_key(col, row)
         depth = col + row
-        order = tile_order(col, row)
+        order = GridCoordinates.tile_order(col, row)
         road_path = road_sprite_path(args.state.roads[tile_key])
 
         ground_sprite = if road_path
@@ -52,10 +52,6 @@ class GridRenderer
   end
 
   private
-
-  def tile_order(col, row)
-    row * GRID_SIZE + col
-  end
 
   def render_mode_buttons(args)
     args.state.mode_buttons.each do |mode, rect|

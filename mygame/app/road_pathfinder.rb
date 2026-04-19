@@ -25,7 +25,7 @@ class RoadPathfinder
       open_set.delete(current)
 
       RoadGraph.road_neighbors(roads, current[0], current[1])
-               .sort_by { |col, row| tile_order(col, row) }
+               .sort_by { |col, row| GridCoordinates.tile_order(col, row) }
                .each do |neighbor|
         tentative_g = g_score[current] + 1
         next unless tentative_g < g_score[neighbor]
@@ -67,17 +67,13 @@ class RoadPathfinder
     return true if candidate_g < best_g
     return false if candidate_g > best_g
 
-    candidate_order = tile_order(candidate[0], candidate[1])
-    best_order = tile_order(current_best[0], current_best[1])
+    candidate_order = GridCoordinates.tile_order(candidate[0], candidate[1])
+    best_order = GridCoordinates.tile_order(current_best[0], current_best[1])
     candidate_order < best_order
   end
 
   def heuristic(tile, goal_tile)
     (tile[0] - goal_tile[0]).abs + (tile[1] - goal_tile[1]).abs
-  end
-
-  def tile_order(col, row)
-    row * GRID_SIZE + col
   end
 
   def rebuild_path(came_from, current)
