@@ -109,8 +109,13 @@ class CarManager
       from_depth = from[0] + from[1]
       to_depth = to[0] + to[1]
       anchor_tile = to_depth >= from_depth ? to : from
+      # Front-lane travel (SE/NE) sits on the screen-down side of the road
+      # and must draw above back-lane travel (NW/SW) when two cars pass on
+      # the same segment. Keep the bias inside [0, 1) so the car still sorts
+      # above its anchor tile's ground and below the next tile's ground.
+      lane_front_bias = (delta_col - delta_row) <=> 0
       queue.push(
-        depth: [from_depth, to_depth].max,
+        depth: [from_depth, to_depth].max + 0.5 + lane_front_bias * 0.1,
         layer: RenderQueue::LAYER_CAR,
         order: tile_order(anchor_tile[0], anchor_tile[1]),
         sprite: {
