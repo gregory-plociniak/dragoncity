@@ -121,6 +121,12 @@ class CarManager
   def advance_car(state, car, midpoint_denied, stop_denied, step_denied)
     stop_crossroad = stop_controlled_crossroad_for(state.roads, car)
 
+    if stop_approach_entry_denied?(state.roads, state.car_slot_occupancy, car)
+      clamp_below_step(car)
+      reset_stall(car)
+      return true
+    end
+
     if stop_queue_denied?(state.car_slot_occupancy, car, stop_crossroad)
       clamp_below_stop_queue(car)
       reset_stall(car)
@@ -627,6 +633,27 @@ class CarManager
 
     occupant = occupancy[second_half_slot(car)]
     occupant && !occupant.equal?(car)
+  end
+
+  def stop_approach_entry_denied?(roads, occupancy, car)
+    target_slot = upcoming_stop_approach_slot(roads, car)
+    return false unless target_slot
+    return false unless car[:progress] + movement_speed(car) >= 1.0
+
+    occupant = occupancy[[target_slot[0], target_slot[1], target_slot[2], target_slot[3], :second]]
+    occupant && !occupant.equal?(car)
+  end
+
+  def upcoming_stop_approach_slot(roads, car)
+    path = car[:leg][:path]
+    idx = car[:step_index]
+    from = path[idx + 1]
+    to = path[idx + 2]
+    next_to = path[idx + 3]
+    return nil unless from && to && next_to
+    return nil unless road_kind_at(roads, to[0], to[1]) == :cross
+
+    [from[0], from[1], to[0], to[1], :first]
   end
 
   def second_half_slot(car)
