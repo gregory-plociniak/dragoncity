@@ -144,6 +144,10 @@ class CarManager
     end
 
     car[:progress] += movement_speed(car)
+    if exiting_owned_crossroad?(car) && car[:progress] >= CROSSOVER_THRESHOLD
+      clear_stop_control_state(car)
+    end
+
     if stop_crossroad && car[:stop_go_token] != stop_crossroad &&
        car[:progress] >= ALL_WAY_STOP_LINE_PROGRESS
       car[:progress] = ALL_WAY_STOP_LINE_PROGRESS
@@ -155,10 +159,8 @@ class CarManager
 
     reset_stall(car)
     while car[:progress] >= 1.0
-      clearing_crossroad = stop_crossroad && car[:stop_go_token] == stop_crossroad
       car[:progress] -= 1.0
       car[:step_index] += 1
-      clear_stop_control_state(car) if clearing_crossroad
 
       next if car[:step_index] < car[:leg][:path].size - 1
 
@@ -232,7 +234,7 @@ class CarManager
     denied = []
 
     cars
-      .group_by { |car| stop_controlled_crossroad_for(state.roads, car) }
+      .group_by { |car| active_stop_controlled_crossroad_for(state.roads, car) }
       .each do |crossroad, group|
         next unless crossroad
 
@@ -525,7 +527,7 @@ class CarManager
 
   def prepare_car_for_tick(state, car)
     car[:current_speed] ||= car[:speed] || DEFAULT_SPEED
-    stop_crossroad = stop_controlled_crossroad_for(state.roads, car)
+    stop_crossroad = active_stop_controlled_crossroad_for(state.roads, car)
 
     unless stop_crossroad
       clear_stop_control_state(car)
@@ -638,6 +640,10 @@ class CarManager
     car[:stop_go_token] = nil
   end
 
+  def active_stop_controlled_crossroad_for(roads, car)
+    stop_controlled_crossroad_for(roads, car) || exiting_owned_crossroad?(car)
+  end
+
   def stop_controlled_crossroad_for(roads, car)
     path = car[:leg][:path]
     idx = car[:step_index]
@@ -648,6 +654,21 @@ class CarManager
     return nil unless road_kind_at(roads, to[0], to[1]) == :cross
 
     to
+  end
+
+  def exiting_owned_crossroad?(car)
+    owned_crossroad = car[:stop_go_token]
+    return nil unless owned_crossroad
+
+    path = car[:leg][:path]
+    idx = car[:step_index]
+    from = path[idx]
+    to = path[idx + 1]
+    return nil unless from && to
+    return nil unless from == owned_crossroad
+    return nil unless car[:progress] < CROSSOVER_THRESHOLD
+
+    owned_crossroad
   end
 
   def road_kind_at(roads, col, row)
