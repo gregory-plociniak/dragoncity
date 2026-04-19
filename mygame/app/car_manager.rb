@@ -9,6 +9,9 @@ class CarManager
   DEFAULT_SPEED = 0.02
   CROSSOVER_THRESHOLD = 0.5
   CROSSOVER_EPSILON = 0.001
+  ALL_WAY_STOP_LINE_PROGRESS = 0.8
+  STOP_BRAKE_PER_TICK = 0.003
+  STOP_ACCEL_PER_TICK = 0.004
   STALL_TICKS_BEFORE_REPATH = 180
   # Main lane-distance control. Increase to push cars farther from the road
   # centerline; decrease to pull them back toward the middle.
@@ -62,13 +65,21 @@ class CarManager
   end
 
   def tick(state)
+    state.cars.each { |car| prepare_car_for_tick(state, car) }
     state.car_slot_occupancy = build_slot_occupancy(state.cars)
     midpoint_denied = resolve_midpoint_crossings(state.cars, state.car_slot_occupancy)
+    stop_denied = resolve_all_way_stops(state, state.cars)
     step_denied = resolve_step_crossings(state.cars, state.car_slot_occupancy)
 
     survivors = []
     state.cars.each do |car|
-      survivors << car if advance_car(state, car, midpoint_denied.include?(car), step_denied.include?(car))
+      survivors << car if advance_car(
+        state,
+        car,
+        midpoint_denied.include?(car),
+        stop_denied.include?(car),
+        step_denied.include?(car)
+      )
     end
     state.cars = survivors
   end
@@ -102,24 +113,52 @@ class CarManager
 
   private
 
-  def advance_car(state, car, midpoint_denied, step_denied)
+  def advance_car(state, car, midpoint_denied, stop_denied, step_denied)
+    stop_crossroad = stop_controlled_crossroad_for(state.roads, car)
+
     if midpoint_denied
       clamp_below_midpoint(car)
       record_stall(state, car)
       return true
     end
 
-    if step_denied
-      clamp_below_step(car)
-      record_stall(state, car)
+    if stop_denied
+      clamp_below_stop_line(car)
+      reset_stall(car)
       return true
     end
 
-    car[:progress] += car[:speed]
-    car[:stall_ticks] = 0
+    if step_denied
+      if waits_at_stop_line_without_go_token?(car, stop_crossroad)
+        clamp_below_stop_line(car)
+        reset_stall(car)
+      elsif stop_crossroad && car[:stop_go_token] == stop_crossroad &&
+            car[:progress] <= ALL_WAY_STOP_LINE_PROGRESS + CROSSOVER_EPSILON
+        clamp_below_stop_line(car)
+        record_stall(state, car)
+      else
+        clamp_below_step(car)
+        record_stall(state, car)
+      end
+      return true
+    end
+
+    car[:progress] += movement_speed(car)
+    if stop_crossroad && car[:stop_go_token] != stop_crossroad &&
+       car[:progress] >= ALL_WAY_STOP_LINE_PROGRESS
+      car[:progress] = ALL_WAY_STOP_LINE_PROGRESS
+      car[:current_speed] = 0.0
+      car[:stop_arrival_frame] ||= state.frame_index
+      reset_stall(car)
+      return true
+    end
+
+    reset_stall(car)
     while car[:progress] >= 1.0
+      clearing_crossroad = stop_crossroad && car[:stop_go_token] == stop_crossroad
       car[:progress] -= 1.0
       car[:step_index] += 1
+      clear_stop_control_state(car) if clearing_crossroad
 
       next if car[:step_index] < car[:leg][:path].size - 1
 
@@ -134,11 +173,20 @@ class CarManager
   end
 
   def clamp_below_midpoint(car)
-    car[:progress] = [car[:progress] + car[:speed], CROSSOVER_THRESHOLD - CROSSOVER_EPSILON].min
+    car[:progress] = [car[:progress] + movement_speed(car), CROSSOVER_THRESHOLD - CROSSOVER_EPSILON].min
+  end
+
+  def clamp_below_stop_line(car)
+    car[:progress] = [car[:progress] + movement_speed(car), ALL_WAY_STOP_LINE_PROGRESS].min
+    car[:current_speed] = 0.0 if car[:progress] >= ALL_WAY_STOP_LINE_PROGRESS
   end
 
   def clamp_below_step(car)
-    car[:progress] = [car[:progress] + car[:speed], 1.0 - CROSSOVER_EPSILON].min
+    car[:progress] = [car[:progress] + movement_speed(car), 1.0 - CROSSOVER_EPSILON].min
+  end
+
+  def reset_stall(car)
+    car[:stall_ticks] = 0
   end
 
   def record_stall(state, car)
@@ -180,6 +228,35 @@ class CarManager
     resolve_gate_crossings(intents, occupancy)
   end
 
+  def resolve_all_way_stops(state, cars)
+    denied = []
+
+    cars
+      .group_by { |car| stop_controlled_crossroad_for(state.roads, car) }
+      .each do |crossroad, group|
+        next unless crossroad
+
+        waiting_group = group.select do |car|
+          at_or_past_stop_line?(car) || car[:stop_go_token] == crossroad
+        end
+        next if waiting_group.empty?
+
+        owner = waiting_group.find { |car| car[:stop_go_token] == crossroad }
+        owner ||= select_all_way_stop_owner(state.roads, crossroad, waiting_group)
+
+        waiting_group.each do |car|
+          if owner&.equal?(car)
+            car[:stop_go_token] = crossroad
+          else
+            car[:stop_go_token] = nil if car[:stop_go_token] == crossroad
+            denied << car if at_or_past_stop_line?(car)
+          end
+        end
+      end
+
+    denied
+  end
+
   def resolve_step_crossings(cars, occupancy)
     intents = cars.filter_map { |car| step_intent(car) }
     resolve_gate_crossings(intents, occupancy)
@@ -215,9 +292,10 @@ class CarManager
     idx = car[:step_index]
     from = path[idx]
     to = path[idx + 1]
+    speed = movement_speed(car)
     return nil unless from && to
     return nil unless car[:progress] < CROSSOVER_THRESHOLD
-    return nil unless car[:progress] + car[:speed] >= CROSSOVER_THRESHOLD
+    return nil unless car[:progress] + speed >= CROSSOVER_THRESHOLD
 
     {
       car: car,
@@ -233,9 +311,10 @@ class CarManager
     from = path[idx]
     to = path[idx + 1]
     next_to = path[idx + 2]
+    speed = movement_speed(car)
     return nil unless from && to && next_to
     return nil unless car[:progress] >= CROSSOVER_THRESHOLD
-    return nil unless car[:progress] + car[:speed] >= 1.0
+    return nil unless car[:progress] + speed >= 1.0
 
     {
       car: car,
@@ -293,6 +372,7 @@ class CarManager
     car[:leg] = { path: new_path, direction: car[:leg][:direction] }
     car[:step_index] = 0
     car[:progress] = 0.0
+    clear_stop_control_state(car)
     true
   end
 
@@ -356,6 +436,7 @@ class CarManager
     car[:progress] = 0.0
     car[:pending_repath] = false
     car[:stall_ticks] = 0
+    clear_stop_control_state(car)
     true
   end
 
@@ -374,8 +455,12 @@ class CarManager
       step_index: 0,
       progress: 0.0,
       speed: DEFAULT_SPEED,
+      current_speed: DEFAULT_SPEED,
       pending_repath: false,
-      stall_ticks: 0
+      stall_ticks: 0,
+      stop_crossroad: nil,
+      stop_arrival_frame: nil,
+      stop_go_token: nil
     }
   end
 
@@ -436,6 +521,137 @@ class CarManager
 
   def tile_order(col, row)
     row * GRID_SIZE + col
+  end
+
+  def prepare_car_for_tick(state, car)
+    car[:current_speed] ||= car[:speed] || DEFAULT_SPEED
+    stop_crossroad = stop_controlled_crossroad_for(state.roads, car)
+
+    unless stop_crossroad
+      clear_stop_control_state(car)
+      car[:current_speed] = accelerate_toward_cruise(car)
+      return
+    end
+
+    if car[:stop_crossroad] != stop_crossroad
+      clear_stop_control_state(car)
+      car[:stop_crossroad] = stop_crossroad
+    end
+
+    if car[:stop_go_token] == stop_crossroad
+      car[:current_speed] = accelerate_toward_cruise(car)
+      return
+    end
+
+    if at_or_past_stop_line?(car)
+      car[:progress] = ALL_WAY_STOP_LINE_PROGRESS
+      car[:current_speed] = 0.0
+      car[:stop_arrival_frame] ||= state.frame_index
+      return
+    end
+
+    if should_brake_for_stop_line?(car)
+      car[:current_speed] = [movement_speed(car) - STOP_BRAKE_PER_TICK, 0.0].max
+    else
+      car[:current_speed] = accelerate_toward_cruise(car)
+    end
+  end
+
+  def select_all_way_stop_owner(roads, crossroad, waiting_group)
+    stopped_cars = waiting_group.select { |car| fully_stopped_at_crossroad?(car, crossroad) }
+    return nil if stopped_cars.empty?
+
+    earliest_arrival = stopped_cars.map { |car| car[:stop_arrival_frame] }.min
+    contenders = stopped_cars.select { |car| car[:stop_arrival_frame] == earliest_arrival }
+    intents = contenders.map { |car| all_way_stop_intent(roads, car) }.compact
+    return nil if intents.empty?
+
+    rank_by_right_hand_yield(intents).first[:car]
+  end
+
+  def all_way_stop_intent(roads, car)
+    path = car[:leg][:path]
+    idx = car[:step_index]
+    from = path[idx]
+    to = path[idx + 1]
+    next_to = path[idx + 2]
+    return nil unless from && to && next_to
+    return nil unless road_kind_at(roads, to[0], to[1]) == :cross
+
+    {
+      car: car,
+      from_tile: to,
+      to_tile: next_to,
+      approach_from: from
+    }
+  end
+
+  def fully_stopped_at_crossroad?(car, crossroad)
+    car[:stop_crossroad] == crossroad &&
+      car[:stop_arrival_frame] &&
+      at_or_past_stop_line?(car) &&
+      movement_speed(car).zero?
+  end
+
+  def waits_at_stop_line_without_go_token?(car, stop_crossroad)
+    stop_crossroad &&
+      car[:stop_crossroad] == stop_crossroad &&
+      car[:stop_go_token] != stop_crossroad &&
+      at_or_past_stop_line?(car)
+  end
+
+  def at_or_past_stop_line?(car)
+    car[:progress] >= ALL_WAY_STOP_LINE_PROGRESS - CROSSOVER_EPSILON
+  end
+
+  def should_brake_for_stop_line?(car)
+    remaining_distance = ALL_WAY_STOP_LINE_PROGRESS - car[:progress]
+    return false unless remaining_distance.positive?
+
+    speed = movement_speed(car)
+    return false unless speed.positive?
+
+    stopping_distance = (speed * speed) / (2.0 * STOP_BRAKE_PER_TICK)
+    remaining_distance <= stopping_distance + speed
+  end
+
+  def accelerate_toward_cruise(car)
+    cruise_speed = car[:speed] || DEFAULT_SPEED
+    current_speed = movement_speed(car)
+
+    if current_speed < cruise_speed
+      [current_speed + STOP_ACCEL_PER_TICK, cruise_speed].min
+    elsif current_speed > cruise_speed
+      [current_speed - STOP_BRAKE_PER_TICK, cruise_speed].max
+    else
+      cruise_speed
+    end
+  end
+
+  def movement_speed(car)
+    car[:current_speed] || car[:speed] || DEFAULT_SPEED
+  end
+
+  def clear_stop_control_state(car)
+    car[:stop_crossroad] = nil
+    car[:stop_arrival_frame] = nil
+    car[:stop_go_token] = nil
+  end
+
+  def stop_controlled_crossroad_for(roads, car)
+    path = car[:leg][:path]
+    idx = car[:step_index]
+    from = path[idx]
+    to = path[idx + 1]
+    next_to = path[idx + 2]
+    return nil unless from && to && next_to
+    return nil unless road_kind_at(roads, to[0], to[1]) == :cross
+
+    to
+  end
+
+  def road_kind_at(roads, col, row)
+    roads[GridCoordinates.tile_key(col, row)]
   end
 
   def interpolated_screen_position(camera, from, to, progress)
