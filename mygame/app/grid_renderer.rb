@@ -8,31 +8,54 @@ class GridRenderer
     b: 110
   }
 
-  def render(args, camera)
+  def enqueue_world(args, camera, queue)
     GRID_SIZE.times do |row|
       GRID_SIZE.times do |col|
         sx, sy = camera.world_to_screen(col, row, TILE_W, FOOTPRINT_H, ORIGIN_X, ORIGIN_Y)
         tile_key = GridCoordinates.tile_key(col, row)
+        depth = col + row
+        order = tile_order(col, row)
         road_path = road_sprite_path(args.state.roads[tile_key])
 
-        if road_path
-          draw_tile(args, sx, sy, road_path)
-        else
-          draw_tile(args, sx, sy, GROUND_TILE_PATH, **ground_tile_color(args.state, tile_key))
-        end
+        ground_sprite = if road_path
+                         build_tile_sprite(sx, sy, road_path)
+                       else
+                         build_tile_sprite(sx, sy, GROUND_TILE_PATH, **ground_tile_color(args.state, tile_key))
+                       end
+        queue.push(depth: depth, layer: RenderQueue::LAYER_GROUND, order: order, sprite: ground_sprite)
 
         preview_path = road_sprite_path(args.state.road_preview[tile_key])
-        draw_tile(args, sx, sy, preview_path, a: PREVIEW_ALPHA) if preview_path
+        if preview_path
+          queue.push(
+            depth: depth,
+            layer: RenderQueue::LAYER_PREVIEW,
+            order: order,
+            sprite: build_tile_sprite(sx, sy, preview_path, a: PREVIEW_ALPHA)
+          )
+        end
 
-        draw_tile(args, sx, sy, BUILDING_TILE_PATH) if args.state.buildings[tile_key]
+        if args.state.buildings[tile_key]
+          queue.push(
+            depth: depth,
+            layer: RenderQueue::LAYER_BUILDING,
+            order: order,
+            sprite: build_tile_sprite(sx, sy, BUILDING_TILE_PATH)
+          )
+        end
       end
     end
+  end
 
+  def render_ui(args)
     render_mode_buttons(args)
     render_reset_button(args)
   end
 
   private
+
+  def tile_order(col, row)
+    row * GRID_SIZE + col
+  end
 
   def render_mode_buttons(args)
     args.state.mode_buttons.each do |mode, rect|
@@ -67,11 +90,11 @@ class GridRenderer
     INVALID_GROUND_COLOR
   end
 
-  def draw_tile(args, sx, sy, path, r: 255, g: 255, b: 255, a: 255)
+  def build_tile_sprite(sx, sy, path, r: 255, g: 255, b: 255, a: 255)
     tile_w, tile_h = tile_dimensions(path)
     tile_x_offset, tile_y_offset = tile_offsets(path)
 
-    args.outputs.sprites << {
+    {
       x: sx - tile_w / 2 + tile_x_offset,
       y: sy - tile_h + tile_y_offset,
       w: tile_w,

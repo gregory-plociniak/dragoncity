@@ -89,7 +89,7 @@ class CarManager
     state.cars = survivors
   end
 
-  def render(args, camera)
+  def enqueue_world(args, camera, queue)
     args.state.cars.each do |car|
       path = car[:leg][:path]
       from = path[car[:step_index]]
@@ -106,13 +106,19 @@ class CarManager
       sprite_path = sprite_for_delta(delta_col, delta_row)
       w, h = AMBULANCE_SPRITE_DIMENSIONS[sprite_path]
 
-      args.outputs.sprites << {
-        x: sx - w / 2,
-        y: sy - TILE_H / 2 - h / 2 + GLOBAL_CAR_Y_BIAS,
-        w: w,
-        h: h,
-        path: sprite_path
-      }
+      anchor_tile = car[:progress] < CROSSOVER_THRESHOLD ? from : to
+      queue.push(
+        depth: anchor_tile[0] + anchor_tile[1],
+        layer: RenderQueue::LAYER_CAR,
+        order: tile_order(anchor_tile[0], anchor_tile[1]),
+        sprite: {
+          x: sx - w / 2,
+          y: sy - TILE_H / 2 - h / 2 + GLOBAL_CAR_Y_BIAS,
+          w: w,
+          h: h,
+          path: sprite_path
+        }
+      )
     end
   end
 

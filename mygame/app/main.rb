@@ -1,6 +1,7 @@
 require 'app/isometric_camera.rb'
 require 'app/grid_coordinates.rb'
 require 'app/game_state.rb'
+require 'app/render_queue.rb'
 require 'app/grid_renderer.rb'
 require 'app/pan_controller.rb'
 require 'app/building_placer.rb'
@@ -29,6 +30,7 @@ def initialize_runtime_objects
   $grid_renderer = GridRenderer.new
   $car_manager = CarManager.new
   $input_handler = InputHandler.new
+  $render_queue = RenderQueue.new
 end
 
 initialize_runtime_objects
@@ -39,8 +41,10 @@ def tick(args)
 
   args.outputs.background_color = [0, 0, 0]
   $car_manager.tick(args.state)
-  $grid_renderer.render(args, $camera)
-  $car_manager.render(args, $camera)
+  $grid_renderer.enqueue_world(args, $camera, $render_queue)
+  $car_manager.enqueue_world(args, $camera, $render_queue)
+  $render_queue.flush_to(args.outputs)
+  $grid_renderer.render_ui(args)
   $input_handler.process(args, $camera)
 end
 
