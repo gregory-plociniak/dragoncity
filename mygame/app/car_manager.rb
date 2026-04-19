@@ -106,9 +106,11 @@ class CarManager
       sprite_path = sprite_for_delta(delta_col, delta_row)
       w, h = AMBULANCE_SPRITE_DIMENSIONS[sprite_path]
 
-      anchor_tile = car[:progress] < CROSSOVER_THRESHOLD ? from : to
+      from_depth = from[0] + from[1]
+      to_depth = to[0] + to[1]
+      anchor_tile = to_depth >= from_depth ? to : from
       queue.push(
-        depth: anchor_tile[0] + anchor_tile[1],
+        depth: [from_depth, to_depth].max,
         layer: RenderQueue::LAYER_CAR,
         order: tile_order(anchor_tile[0], anchor_tile[1]),
         sprite: {
